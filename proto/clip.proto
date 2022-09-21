@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package protocol;
+
+option go_package = "github.com/Roarcannotprogramming/clipipe/service/clip/protocol";
+
+service Clip {
+    rpc Ping (PingRequest) returns (PingResponse) {}
+    rpc Push (PushRequest) returns (PushResponse) {}
+    rpc PushGetStream (ConnRequest) returns (stream MsgResponse) {}
+}
+
+message Status {
+    int32 code = 1;
+    string message = 2;
+}
+
+message PingRequest {
+    string id = 1;
+    Status status = 2;
+}
+
+message PingResponse {
+    string id = 1;
+    Status status = 2;
+}
