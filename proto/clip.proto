@@ -24,3 +24,25 @@ message PingResponse {
     string id = 1;
     Status status = 2;
 }
+
+message PushRequest {
+    string id = 1;
+    Status status = 2;
+    string msg = 3;
+}
+
+message PushResponse {
+    string id = 1;
+    Status status = 2;
+}
+
+message ConnRequest {
+    string id = 1;
+    Status status = 2;
+}
+
+message MsgResponse {
+    string id = 1;
+    Status status = 2;
+    string msg = 3;
+}
