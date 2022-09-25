@@ -98,14 +98,25 @@ func (cclient *ClipClient) KeepAlive() {
 		if err != nil {
 			log.Fatalf("failed to get hostname: %v", err)
 		}
+		status := pb.Status{Code: pb.Code_OK, Message: "ping"}
 		ping_ctx, cancel := context.WithTimeout(cclient.pb_ctx, time.Second)
-		r, ping_err := (*cclient.pb).Ping(ping_ctx, &pb.PingRequest{Id: hostname})
+		r, ping_err := (*cclient.pb).Ping(ping_ctx, &pb.PingRequest{Id: hostname, Status: &status})
 		if ping_err != nil {
 			log.Fatalf("failed to ping: %v", ping_err)
 		}
 		cancel()
-		log.Printf("Ping response: %s", r.Id)
+		log.Printf("Ping response: %s, message: %s", r.Id, r.Status.Message)
 		time.Sleep(5 * time.Second)
+	}
+}
+
+func (cclient *ClipClient) WatchClipboardSend() {
+	data := make(chan []byte)
+	go cclient.cc.WatchClipboard(data)
+	for {
+		d := <-data
+
+		log.Printf("New data: %s", d)
 	}
 }
 
@@ -123,6 +134,12 @@ func main() {
 		log.Fatalf("failed to create clip client: %v", err)
 	}
 	go clipClient.KeepAlive()
-	// Contact the server and print out its response.
+	//	go func() {
+	//		for {
+	//			clipClient.cc.GetClipboard()
+	//			time.Sleep(1 * time.Second)
+	//		}
+	//	}()
 	time.Sleep(100 * time.Second)
+
 }

@@ -21,7 +21,17 @@ type server struct {
 }
 
 func (s *server) Ping(ctx context.Context, in *pb.PingRequest) (*pb.PingResponse, error) {
-	return &pb.PingResponse{Id: in.Id}, nil
+	if in.Status.Code == pb.Code_OK && in.Status.Message == "ping" {
+		out := &pb.PingResponse{
+			Status: &pb.Status{
+				Code:    pb.Code_OK,
+				Message: "pong",
+			},
+			Id: in.Id,
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("invalid ping request")
 }
 
 // func (s *server)
