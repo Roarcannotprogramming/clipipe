@@ -2,38 +2,21 @@ package main
 
 import (
 	"context"
-	"flag"
-	"fmt"
-	"log"
-	"net"
 
-	pb "github.com/Roarcannotprogramming/clipipe/proto"
-
-	"google.golang.org/grpc"
+	"golang.design/x/clipboard"
 )
-
-var (
-	port = flag.Int("port", 8799, "The server port")
-)
-
-type server struct {
-	pb.UnimplementedClipServer
-}
-
-func (s *server) Ping(ctx context.Context, in *pb.PingRequest) (*pb.PingResponse, error) {
-	return &pb.PingResponse{id: pb.PingRequest.id}, nil
-}
 
 func main() {
-	flag.Parse()
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
+	// clipboard.Read(clipboard.FmtText)
+	err := clipboard.Init()
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		panic(err)
 	}
-	s := grpc.NewServer()
-	pb.RegisterClipServer(s, &server{})
-	log.Printf("Server listening on port %d", *port)
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+	// changed := clipboard.Write(clipboard.FmtText, []byte("Hello, World!1"))
+	// <-changed
+	changed := clipboard.Watch(context.Background(), clipboard.FmtText)
+	for data := range changed {
+		println(string(data))
 	}
+	// println(`"text data" is no longer available from clipboard.`)
 }

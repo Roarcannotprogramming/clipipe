@@ -10,8 +10,13 @@ service Clip {
     rpc PushGetStream (ConnRequest) returns (stream MsgResponse) {}
 }
 
+enum Code {
+    OK = 0;
+    ERROR = 1;
+}
+
 message Status {
-    int32 code = 1;
+    Code code = 1;
     string message = 2;
 }
 
