@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	addr = flag.String("addr", "127.0.0.1", "The server address")
-	port = flag.Int("port", 8799, "The server port")
+	addr     = flag.String("addr", "127.0.0.1", "The server address")
+	port     = flag.Int("port", 8799, "The server port")
+	hostname = flag.String("hostname", "", "The hostname")
 )
 
 // Prepare for muli-thread
@@ -85,11 +86,15 @@ func NewClipClient(pb *pb.ClipClient) (*ClipClient, error) {
 }
 
 func GetHostname() (string, error) {
-	hostname, err := os.Hostname()
+	if *hostname != "" {
+		return *hostname, nil
+	}
+	os_hostname, err := os.Hostname()
+	hostname = &os_hostname
 	if err != nil {
 		return "", err
 	}
-	return hostname, nil
+	return *hostname, nil
 }
 
 func (cclient *ClipClient) KeepAlive() {
@@ -113,10 +118,53 @@ func (cclient *ClipClient) KeepAlive() {
 func (cclient *ClipClient) WatchClipboardSend() {
 	data := make(chan []byte)
 	go cclient.cc.WatchClipboard(data)
+	hostname, err := GetHostname()
+	if err != nil {
+		log.Fatalf("failed to get hostname: %v", err)
+	}
 	for {
 		d := <-data
-
 		log.Printf("New data: %s", d)
+
+		push_ctx, cancel := context.WithTimeout(cclient.pb_ctx, time.Second)
+		pushRequest := &pb.PushRequest{
+			Id: hostname,
+			Status: &pb.Status{
+				Code:    pb.Code_OK,
+				Message: "push",
+			},
+			Msg: d,
+		}
+		r, push_err := (*cclient.pb).Push(push_ctx, pushRequest)
+		if push_err != nil {
+			log.Fatalf("failed to push: %v", push_err)
+		}
+		cancel()
+		if r.Id != hostname || r.Status.Code != pb.Code_OK {
+			log.Fatalf("failed to push: %v", push_err)
+		}
+	}
+}
+
+func (cclient *ClipClient) RecvUpdate() {
+	hostname, err := GetHostname()
+	if err != nil {
+		log.Fatalf("failed to get hostname: %v", err)
+	}
+	stream, err := (*cclient.pb).Pull(cclient.pb_ctx, &pb.PullRequest{Id: hostname})
+	if err != nil {
+		log.Fatalf("failed to pull: %v", err)
+	}
+	for {
+		update, err := stream.Recv()
+		if err != nil {
+			log.Fatalf("failed to recv: %v", err)
+		}
+		log.Printf("Recv update: %s", update.Msg)
+		cclient.cc.mu.Lock()
+		cclient.cc.Content = update.Msg
+		cclient.cc.mu.Unlock()
+		cclient.cc.WriteClipboard()
 	}
 }
 

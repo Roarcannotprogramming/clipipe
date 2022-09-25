@@ -24,7 +24,7 @@ const _ = grpc.SupportPackageIsVersion7
 type ClipClient interface {
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
 	Push(ctx context.Context, in *PushRequest, opts ...grpc.CallOption) (*PushResponse, error)
-	PushGetStream(ctx context.Context, in *ConnRequest, opts ...grpc.CallOption) (Clip_PushGetStreamClient, error)
+	GetStream(ctx context.Context, in *ConnRequest, opts ...grpc.CallOption) (Clip_GetStreamClient, error)
 }
 
 type clipClient struct {
@@ -53,12 +53,12 @@ func (c *clipClient) Push(ctx context.Context, in *PushRequest, opts ...grpc.Cal
 	return out, nil
 }
 
-func (c *clipClient) PushGetStream(ctx context.Context, in *ConnRequest, opts ...grpc.CallOption) (Clip_PushGetStreamClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Clip_ServiceDesc.Streams[0], "/protocol.Clip/PushGetStream", opts...)
+func (c *clipClient) GetStream(ctx context.Context, in *ConnRequest, opts ...grpc.CallOption) (Clip_GetStreamClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Clip_ServiceDesc.Streams[0], "/protocol.Clip/GetStream", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &clipPushGetStreamClient{stream}
+	x := &clipGetStreamClient{stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -68,16 +68,16 @@ func (c *clipClient) PushGetStream(ctx context.Context, in *ConnRequest, opts ..
 	return x, nil
 }
 
-type Clip_PushGetStreamClient interface {
+type Clip_GetStreamClient interface {
 	Recv() (*MsgResponse, error)
 	grpc.ClientStream
 }
 
-type clipPushGetStreamClient struct {
+type clipGetStreamClient struct {
 	grpc.ClientStream
 }
 
-func (x *clipPushGetStreamClient) Recv() (*MsgResponse, error) {
+func (x *clipGetStreamClient) Recv() (*MsgResponse, error) {
 	m := new(MsgResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -91,7 +91,7 @@ func (x *clipPushGetStreamClient) Recv() (*MsgResponse, error) {
 type ClipServer interface {
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
 	Push(context.Context, *PushRequest) (*PushResponse, error)
-	PushGetStream(*ConnRequest, Clip_PushGetStreamServer) error
+	GetStream(*ConnRequest, Clip_GetStreamServer) error
 	mustEmbedUnimplementedClipServer()
 }
 
@@ -105,8 +105,8 @@ func (UnimplementedClipServer) Ping(context.Context, *PingRequest) (*PingRespons
 func (UnimplementedClipServer) Push(context.Context, *PushRequest) (*PushResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Push not implemented")
 }
-func (UnimplementedClipServer) PushGetStream(*ConnRequest, Clip_PushGetStreamServer) error {
-	return status.Errorf(codes.Unimplemented, "method PushGetStream not implemented")
+func (UnimplementedClipServer) GetStream(*ConnRequest, Clip_GetStreamServer) error {
+	return status.Errorf(codes.Unimplemented, "method GetStream not implemented")
 }
 func (UnimplementedClipServer) mustEmbedUnimplementedClipServer() {}
 
@@ -157,24 +157,24 @@ func _Clip_Push_Handler(srv interface{}, ctx context.Context, dec func(interface
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Clip_PushGetStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _Clip_GetStream_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(ConnRequest)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(ClipServer).PushGetStream(m, &clipPushGetStreamServer{stream})
+	return srv.(ClipServer).GetStream(m, &clipGetStreamServer{stream})
 }
 
-type Clip_PushGetStreamServer interface {
+type Clip_GetStreamServer interface {
 	Send(*MsgResponse) error
 	grpc.ServerStream
 }
 
-type clipPushGetStreamServer struct {
+type clipGetStreamServer struct {
 	grpc.ServerStream
 }
 
-func (x *clipPushGetStreamServer) Send(m *MsgResponse) error {
+func (x *clipGetStreamServer) Send(m *MsgResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 
@@ -196,8 +196,8 @@ var Clip_ServiceDesc = grpc.ServiceDesc{
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "PushGetStream",
-			Handler:       _Clip_PushGetStream_Handler,
+			StreamName:    "GetStream",
+			Handler:       _Clip_GetStream_Handler,
 			ServerStreams: true,
 		},
 	},
