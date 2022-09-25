@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 
 	pb "github.com/Roarcannotprogramming/clipipe/proto"
 
@@ -13,7 +14,11 @@ import (
 )
 
 var (
-	port = flag.Int("port", 8799, "The server port")
+	port        = flag.Int("port", 8799, "The server port")
+	max_saved   = flag.Int("max_saved", 10, "The max number of saved clipboard")
+	saved_clips = make([][]byte, *max_saved)
+	current     = 0
+	mutex       = &sync.RWMutex{}
 )
 
 type server struct {
@@ -34,7 +39,44 @@ func (s *server) Ping(ctx context.Context, in *pb.PingRequest) (*pb.PingResponse
 	return nil, fmt.Errorf("invalid ping request")
 }
 
-// func (s *server)
+func (s *server) Push(ctx context.Context, in *pb.PushRequest) (*pb.PushResponse, error) {
+	if in.Status.Code == pb.Code_OK && in.Status.Message == "push" {
+		mutex.Lock()
+		current = (current + 1) % *max_saved
+		saved_clips[current] = in.Msg
+		mutex.Unlock()
+		out := &pb.PushResponse{
+			Status: &pb.Status{
+				Code:    pb.Code_OK,
+				Message: "done",
+			},
+			Id: in.Id,
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("invalid push request")
+}
+
+func (s *server) GetStream(in *pb.ConnRequest, stream pb.Clip_GetStreamServer) error {
+	if in.Status.Code == pb.Code_OK && in.Status.Message == "connect" {
+		for {
+			mutex.RLock()
+			tmp_msg := saved_clips[current]
+			mutex.RUnlock()
+			err := stream.Send(&pb.MsgResponse{
+				Status: &pb.Status{
+					Code:    pb.Code_OK,
+					Message: "done",
+				},
+				Msg: tmp_msg,
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return fmt.Errorf("invalid get request")
+}
 
 func main() {
 	flag.Parse()
