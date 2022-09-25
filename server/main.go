@@ -6,19 +6,21 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"sync"
 
 	pb "github.com/Roarcannotprogramming/clipipe/proto"
 
 	"google.golang.org/grpc"
 )
 
+type HostClip struct {
+	Host string
+	Clip []byte
+}
+
 var (
 	port        = flag.Int("port", 8799, "The server port")
 	max_saved   = flag.Int("max_saved", 10, "The max number of saved clipboard")
-	saved_clips = make([][]byte, *max_saved)
-	current     = 0
-	mutex       = &sync.RWMutex{}
+	saved_clips = make(chan HostClip, *max_saved)
 )
 
 type server struct {
@@ -41,10 +43,11 @@ func (s *server) Ping(ctx context.Context, in *pb.PingRequest) (*pb.PingResponse
 
 func (s *server) Push(ctx context.Context, in *pb.PushRequest) (*pb.PushResponse, error) {
 	if in.Status.Code == pb.Code_OK && in.Status.Message == "push" {
-		mutex.Lock()
-		current = (current + 1) % *max_saved
-		saved_clips[current] = in.Msg
-		mutex.Unlock()
+		log.Printf("Received: %s", in.Msg)
+		saved_clips <- HostClip{
+			Host: in.Id,
+			Clip: in.Msg,
+		}
 		out := &pb.PushResponse{
 			Status: &pb.Status{
 				Code:    pb.Code_OK,
@@ -60,15 +63,15 @@ func (s *server) Push(ctx context.Context, in *pb.PushRequest) (*pb.PushResponse
 func (s *server) GetStream(in *pb.ConnRequest, stream pb.Clip_GetStreamServer) error {
 	if in.Status.Code == pb.Code_OK && in.Status.Message == "connect" {
 		for {
-			mutex.RLock()
-			tmp_msg := saved_clips[current]
-			mutex.RUnlock()
+			tmp := <-saved_clips
+			log.Printf("Sending: %s", tmp.Clip)
 			err := stream.Send(&pb.MsgResponse{
+				Id: tmp.Host,
 				Status: &pb.Status{
 					Code:    pb.Code_OK,
 					Message: "done",
 				},
-				Msg: tmp_msg,
+				Msg: tmp.Clip,
 			})
 			if err != nil {
 				return err
