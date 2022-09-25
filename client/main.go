@@ -126,7 +126,6 @@ func (cclient *ClipClient) WatchClipboardSend() {
 		d := <-data
 		log.Printf("New data: %s", d)
 
-		push_ctx, cancel := context.WithTimeout(cclient.pb_ctx, time.Second)
 		pushRequest := &pb.PushRequest{
 			Id: hostname,
 			Status: &pb.Status{
@@ -135,6 +134,7 @@ func (cclient *ClipClient) WatchClipboardSend() {
 			},
 			Msg: d,
 		}
+		push_ctx, cancel := context.WithTimeout(cclient.pb_ctx, time.Second)
 		r, push_err := (*cclient.pb).Push(push_ctx, pushRequest)
 		if push_err != nil {
 			log.Fatalf("failed to push: %v", push_err)
@@ -146,21 +146,33 @@ func (cclient *ClipClient) WatchClipboardSend() {
 	}
 }
 
-func (cclient *ClipClient) RecvUpdate() {
+func (cclient *ClipClient) ConnectRecvUpdate() {
 	hostname, err := GetHostname()
 	if err != nil {
 		log.Fatalf("failed to get hostname: %v", err)
 	}
-	stream, err := (*cclient.pb).Pull(cclient.pb_ctx, &pb.PullRequest{Id: hostname})
-	if err != nil {
-		log.Fatalf("failed to pull: %v", err)
+	connrequest := &pb.ConnRequest{
+		Id: hostname,
+		Status: &pb.Status{
+			Code:    pb.Code_OK,
+			Message: "connect",
+		},
 	}
+	stream_ctx, cancel := context.WithTimeout(cclient.pb_ctx, time.Second)
+	stream, err := (*cclient.pb).GetStream(stream_ctx, connrequest)
+	if err != nil {
+		log.Fatalf("failed to get stream: %v", err)
+	}
+	cancel()
 	for {
 		update, err := stream.Recv()
 		if err != nil {
 			log.Fatalf("failed to recv: %v", err)
 		}
-		log.Printf("Recv update: %s", update.Msg)
+		if update.Id != hostname || update.Status.Code != pb.Code_OK {
+			log.Fatalf("failed to recv: %v", err)
+		}
+		log.Printf("Recv clipboard update: %s", update.Msg)
 		cclient.cc.mu.Lock()
 		cclient.cc.Content = update.Msg
 		cclient.cc.mu.Unlock()
@@ -182,12 +194,6 @@ func main() {
 		log.Fatalf("failed to create clip client: %v", err)
 	}
 	go clipClient.KeepAlive()
-	//	go func() {
-	//		for {
-	//			clipClient.cc.GetClipboard()
-	//			time.Sleep(1 * time.Second)
-	//		}
-	//	}()
-	time.Sleep(100 * time.Second)
-
+	go clipClient.WatchClipboardSend()
+	clipClient.ConnectRecvUpdate()
 }
