@@ -22,6 +22,8 @@ var (
 	hostname = flag.String("hostname", "", "The hostname")
 )
 
+var noNotify chan struct{}
+
 // Prepare for muli-thread
 type clipContent struct {
 	Content []byte
@@ -53,13 +55,18 @@ func (cc *clipContent) WatchClipboard(data chan []byte) {
 	if cc.ctx == nil {
 		panic("cc.ctx is nil")
 	}
+	new_data := clipboard.Watch(cc.ctx, clipboard.FmtText)
 	for {
-		new_data := clipboard.Watch(cc.ctx, clipboard.FmtText)
 		d := <-new_data
 		cc.mu.Lock()
 		cc.Content = d
 		cc.mu.Unlock()
-		data <- d
+		select {
+		case <-noNotify:
+			continue
+		default:
+			data <- d
+		}
 	}
 }
 
@@ -105,12 +112,12 @@ func (cclient *ClipClient) KeepAlive() {
 		}
 		status := pb.Status{Code: pb.Code_OK, Message: "ping"}
 		ping_ctx, cancel := context.WithTimeout(cclient.pb_ctx, time.Second)
-		r, ping_err := (*cclient.pb).Ping(ping_ctx, &pb.PingRequest{Id: hostname, Status: &status})
+		_, ping_err := (*cclient.pb).Ping(ping_ctx, &pb.PingRequest{Id: hostname, Status: &status})
 		if ping_err != nil {
 			log.Fatalf("failed to ping: %v", ping_err)
 		}
 		cancel()
-		log.Printf("Ping response: %s, message: %s", r.Id, r.Status.Message)
+		// log.Printf("Ping response: %s, message: %s", r.Id, r.Status.Message)
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -124,7 +131,7 @@ func (cclient *ClipClient) WatchClipboardSend() {
 	}
 	for {
 		d := <-data
-		log.Printf("New data: %s", d)
+		log.Printf("To Push: %s", d)
 
 		pushRequest := &pb.PushRequest{
 			Id: hostname,
@@ -158,25 +165,30 @@ func (cclient *ClipClient) ConnectRecvUpdate() {
 			Message: "connect",
 		},
 	}
-	stream_ctx, cancel := context.WithTimeout(cclient.pb_ctx, time.Second)
-	stream, err := (*cclient.pb).GetStream(stream_ctx, connrequest)
+	// stream_ctx, cancel := context.WithTimeout(cclient.pb_ctx, time.Second)
+	stream, err := (*cclient.pb).GetStream(cclient.pb_ctx, connrequest)
 	if err != nil {
 		log.Fatalf("failed to get stream: %v", err)
 	}
-	cancel()
+	// cancel()
 	for {
 		update, err := stream.Recv()
 		if err != nil {
 			log.Fatalf("failed to recv: %v", err)
 		}
-		if update.Id != hostname || update.Status.Code != pb.Code_OK {
-			log.Fatalf("failed to recv: %v", err)
+		if update.Status.Code != pb.Code_OK {
+			log.Fatalf("failed to recv content: %v", err)
 		}
-		log.Printf("Recv clipboard update: %s", update.Msg)
-		cclient.cc.mu.Lock()
-		cclient.cc.Content = update.Msg
-		cclient.cc.mu.Unlock()
-		cclient.cc.WriteClipboard()
+		if update.Id != hostname {
+			log.Printf("Update clipboard from %s: %s", update.Id, update.Msg)
+			cclient.cc.mu.Lock()
+			cclient.cc.Content = update.Msg
+			cclient.cc.mu.Unlock()
+			go func() {
+				noNotify <- struct{}{}
+				cclient.cc.WriteClipboard()
+			}()
+		}
 	}
 }
 
