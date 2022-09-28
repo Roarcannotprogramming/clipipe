@@ -63,18 +63,24 @@ func (s *server) Push(ctx context.Context, in *pb.PushRequest) (*pb.PushResponse
 func (s *server) GetStream(in *pb.ConnRequest, stream pb.Clip_GetStreamServer) error {
 	if in.Status.Code == pb.Code_OK && in.Status.Message == "connect" {
 		for {
-			tmp := <-saved_clips
-			log.Printf("Sending: %s", tmp.Clip)
-			err := stream.Send(&pb.MsgResponse{
-				Id: tmp.Host,
-				Status: &pb.Status{
-					Code:    pb.Code_OK,
-					Message: "done",
-				},
-				Msg: tmp.Clip,
-			})
-			if err != nil {
-				return err
+			select {
+			case tmp := <-saved_clips:
+				log.Printf("Sending: %s", tmp.Clip)
+				err := stream.Send(&pb.MsgResponse{
+					Id: tmp.Host,
+					Status: &pb.Status{
+						Code:    pb.Code_OK,
+						Message: "done",
+					},
+					Msg: tmp.Clip,
+				})
+				if err != nil {
+					log.Printf("Error sending: %v", err)
+					return err
+				}
+			case <-stream.Context().Done():
+				log.Printf("Client disconnected")
+				return nil
 			}
 		}
 	}

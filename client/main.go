@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.design/x/clipboard"
@@ -131,7 +133,7 @@ func (cclient *ClipClient) WatchClipboardSend() {
 	}
 	for {
 		d := <-data
-		log.Printf("To Push: %s", d)
+		log.Printf("[*] To Push: %s", d)
 
 		pushRequest := &pb.PushRequest{
 			Id: hostname,
@@ -165,22 +167,26 @@ func (cclient *ClipClient) ConnectRecvUpdate() {
 			Message: "connect",
 		},
 	}
-	// stream_ctx, cancel := context.WithTimeout(cclient.pb_ctx, time.Second)
+	// stream_ctx, cancel := context.WithTimeout(cclient.pb_ctx, 10*time.Second)
 	stream, err := (*cclient.pb).GetStream(cclient.pb_ctx, connrequest)
 	if err != nil {
 		log.Fatalf("failed to get stream: %v", err)
 	}
-	// cancel()
+	log.Printf("Get stream success")
+	// defer cancel()
 	for {
+		log.Printf("Waiting for update")
 		update, err := stream.Recv()
+		log.Printf("Get update")
 		if err != nil {
 			log.Fatalf("failed to recv: %v", err)
 		}
 		if update.Status.Code != pb.Code_OK {
 			log.Fatalf("failed to recv content: %v", err)
 		}
+		log.Printf("[*] Receive : %s", update.Msg)
 		if update.Id != hostname {
-			log.Printf("Update clipboard from %s: %s", update.Id, update.Msg)
+			log.Printf("[+] Update clipboard from %s: %s", update.Id, update.Msg)
 			cclient.cc.mu.Lock()
 			cclient.cc.Content = update.Msg
 			cclient.cc.mu.Unlock()
@@ -192,7 +198,16 @@ func (cclient *ClipClient) ConnectRecvUpdate() {
 	}
 }
 
+func handleSignal() {
+	signal_chan := make(chan os.Signal, 1)
+	signal.Notify(signal_chan, syscall.SIGINT, syscall.SIGTERM)
+	<-signal_chan
+	log.Printf("Exit")
+	os.Exit(0)
+}
+
 func main() {
+	go handleSignal()
 	flag.Parse()
 	full_addr := fmt.Sprintf("%s:%d", *addr, *port)
 	conn, err := grpc.Dial(full_addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -205,7 +220,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create clip client: %v", err)
 	}
-	go clipClient.KeepAlive()
+	// go clipClient.KeepAlive()
 	go clipClient.WatchClipboardSend()
-	clipClient.ConnectRecvUpdate()
+	go clipClient.ConnectRecvUpdate()
+	log.Printf("Client %s is ready", *hostname)
+	select {}
 }
