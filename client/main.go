@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -24,7 +25,7 @@ var (
 	hostname = flag.String("hostname", "", "The hostname")
 )
 
-var noNotify = make(chan struct{}, 1)
+var noNotify = make(chan struct{}, 10)
 
 // Prepare for muli-thread
 type clipContent struct {
@@ -63,8 +64,10 @@ func (cc *clipContent) WatchClipboard(data chan []byte) {
 		cc.mu.Lock()
 		cc.Content = d
 		cc.mu.Unlock()
+		log.Printf("Get new clipboard data")
 		select {
 		case <-noNotify:
+			log.Printf("No notification")
 			continue
 		default:
 			data <- d
@@ -187,14 +190,18 @@ func (cclient *ClipClient) ConnectRecvUpdate() {
 		log.Printf("[*] Receive : %s", update.Msg)
 		if update.Id != hostname {
 			cclient.cc.mu.Lock()
-			cclient.cc.Content = update.Msg
+			if !bytes.Equal(cclient.cc.Content, update.Msg) {
+				cclient.cc.Content = update.Msg
+			} else {
+				cclient.cc.mu.Unlock()
+				continue
+			}
 			cclient.cc.mu.Unlock()
 			go func() {
 				noNotify <- struct{}{}
 				log.Printf("[+] Update clipboard from %s: %s", update.Id, update.Msg)
 				cclient.cc.WriteClipboard()
 			}()
-			time.Sleep(1 * time.Millisecond)
 		}
 	}
 }
