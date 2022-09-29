@@ -24,7 +24,7 @@ var (
 	hostname = flag.String("hostname", "", "The hostname")
 )
 
-var noNotify chan struct{}
+var noNotify = make(chan struct{}, 1)
 
 // Prepare for muli-thread
 type clipContent struct {
@@ -194,6 +194,7 @@ func (cclient *ClipClient) ConnectRecvUpdate() {
 				log.Printf("[+] Update clipboard from %s: %s", update.Id, update.Msg)
 				cclient.cc.WriteClipboard()
 			}()
+			time.Sleep(1 * time.Millisecond)
 		}
 	}
 }
