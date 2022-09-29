@@ -186,12 +186,12 @@ func (cclient *ClipClient) ConnectRecvUpdate() {
 		}
 		log.Printf("[*] Receive : %s", update.Msg)
 		if update.Id != hostname {
-			log.Printf("[+] Update clipboard from %s: %s", update.Id, update.Msg)
 			cclient.cc.mu.Lock()
 			cclient.cc.Content = update.Msg
 			cclient.cc.mu.Unlock()
 			go func() {
 				noNotify <- struct{}{}
+				log.Printf("[+] Update clipboard from %s: %s", update.Id, update.Msg)
 				cclient.cc.WriteClipboard()
 			}()
 		}

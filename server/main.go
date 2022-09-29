@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 
 	pb "github.com/Roarcannotprogramming/clipipe/proto"
 
@@ -17,10 +18,15 @@ type HostClip struct {
 	Clip []byte
 }
 
+type Clients struct {
+	Named_chans map[string]chan HostClip
+	mu          sync.Mutex
+}
+
 var (
-	port        = flag.Int("port", 8799, "The server port")
-	max_saved   = flag.Int("max_saved", 10, "The max number of saved clipboard")
-	saved_clips = make(chan HostClip, *max_saved)
+	port      = flag.Int("port", 8799, "The server port")
+	max_saved = flag.Int("max_saved", 10, "The max number of saved clipboard")
+	clients   = Clients{Named_chans: make(map[string]chan HostClip)}
 )
 
 type server struct {
@@ -44,10 +50,13 @@ func (s *server) Ping(ctx context.Context, in *pb.PingRequest) (*pb.PingResponse
 func (s *server) Push(ctx context.Context, in *pb.PushRequest) (*pb.PushResponse, error) {
 	if in.Status.Code == pb.Code_OK && in.Status.Message == "push" {
 		log.Printf("Received: %s", in.Msg)
-		saved_clips <- HostClip{
-			Host: in.Id,
-			Clip: in.Msg,
+		clients.mu.Lock()
+		for id, hc := range clients.Named_chans {
+			if id != in.Id {
+				hc <- HostClip{Host: in.Id, Clip: in.Msg}
+			}
 		}
+		clients.mu.Unlock()
 		out := &pb.PushResponse{
 			Status: &pb.Status{
 				Code:    pb.Code_OK,
@@ -62,10 +71,17 @@ func (s *server) Push(ctx context.Context, in *pb.PushRequest) (*pb.PushResponse
 
 func (s *server) GetStream(in *pb.ConnRequest, stream pb.Clip_GetStreamServer) error {
 	if in.Status.Code == pb.Code_OK && in.Status.Message == "connect" {
+		clients.mu.Lock()
+		if _, exists := clients.Named_chans[in.Id]; !exists {
+			clients.Named_chans[in.Id] = make(chan HostClip, *max_saved)
+		} else {
+			log.Fatalf("Client %s already exists", in.Id)
+		}
+		clients.mu.Unlock()
 		for {
 			select {
-			case tmp := <-saved_clips:
-				log.Printf("Sending: %s", tmp.Clip)
+			case tmp := <-clients.Named_chans[in.Id]:
+				log.Printf("%v: Sending: %s", stream, tmp.Clip)
 				err := stream.Send(&pb.MsgResponse{
 					Id: tmp.Host,
 					Status: &pb.Status{
@@ -76,10 +92,16 @@ func (s *server) GetStream(in *pb.ConnRequest, stream pb.Clip_GetStreamServer) e
 				})
 				if err != nil {
 					log.Printf("Error sending: %v", err)
+					clients.mu.Lock()
+					delete(clients.Named_chans, in.Id)
+					clients.mu.Unlock()
 					return err
 				}
 			case <-stream.Context().Done():
 				log.Printf("Client disconnected")
+				clients.mu.Lock()
+				delete(clients.Named_chans, in.Id)
+				clients.mu.Unlock()
 				return nil
 			}
 		}
