@@ -5,13 +5,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"golang.design/x/clipboard"
 
 	pb "github.com/Roarcannotprogramming/clipipe/proto"
@@ -23,6 +23,7 @@ var (
 	addr     = flag.String("addr", "127.0.0.1", "The server address")
 	port     = flag.Int("port", 8799, "The server port")
 	hostname = flag.String("hostname", "", "The hostname")
+	loglevel = flag.String("loglevel", "info", "The log level")
 )
 
 var noNotify = make(chan struct{}, 10)
@@ -64,10 +65,8 @@ func (cc *clipContent) WatchClipboard(data chan []byte) {
 		cc.mu.Lock()
 		cc.Content = d
 		cc.mu.Unlock()
-		log.Printf("Get new clipboard data")
 		select {
 		case <-noNotify:
-			log.Printf("No notification")
 			continue
 		default:
 			data <- d
@@ -119,10 +118,9 @@ func (cclient *ClipClient) KeepAlive() {
 		ping_ctx, cancel := context.WithTimeout(cclient.pb_ctx, time.Second)
 		_, ping_err := (*cclient.pb).Ping(ping_ctx, &pb.PingRequest{Id: hostname, Status: &status})
 		if ping_err != nil {
-			log.Fatalf("failed to ping: %v", ping_err)
+			log.Errorf("failed to ping: %v", ping_err)
 		}
 		cancel()
-		// log.Printf("Ping response: %s, message: %s", r.Id, r.Status.Message)
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -136,7 +134,7 @@ func (cclient *ClipClient) WatchClipboardSend() {
 	}
 	for {
 		d := <-data
-		log.Printf("[*] To Push: %s", d)
+		log.Debugf("Pushing: %s", d)
 
 		pushRequest := &pb.PushRequest{
 			Id: hostname,
@@ -149,11 +147,11 @@ func (cclient *ClipClient) WatchClipboardSend() {
 		push_ctx, cancel := context.WithTimeout(cclient.pb_ctx, time.Second)
 		r, push_err := (*cclient.pb).Push(push_ctx, pushRequest)
 		if push_err != nil {
-			log.Fatalf("failed to push: %v", push_err)
+			log.Errorf("failed to push: %v", push_err)
 		}
 		cancel()
 		if r.Id != hostname || r.Status.Code != pb.Code_OK {
-			log.Fatalf("failed to push: %v", push_err)
+			log.Errorf("failed to push: %v", push_err)
 		}
 	}
 }
@@ -170,24 +168,22 @@ func (cclient *ClipClient) ConnectRecvUpdate() {
 			Message: "connect",
 		},
 	}
-	// stream_ctx, cancel := context.WithTimeout(cclient.pb_ctx, 10*time.Second)
 	stream, err := (*cclient.pb).GetStream(cclient.pb_ctx, connrequest)
 	if err != nil {
-		log.Fatalf("failed to get stream: %v", err)
+		log.Errorf("failed to get stream: %v", err)
+		return
 	}
-	log.Printf("Get stream success")
-	// defer cancel()
 	for {
-		log.Printf("Waiting for update")
 		update, err := stream.Recv()
-		log.Printf("Get update")
 		if err != nil {
-			log.Fatalf("failed to recv: %v", err)
+			log.Errorf("failed to recv: %v", err)
+			return
 		}
 		if update.Status.Code != pb.Code_OK {
-			log.Fatalf("failed to recv content: %v", err)
+			log.Errorf("failed to recv content: %v", err)
+			return
 		}
-		log.Printf("[*] Receive : %s", update.Msg)
+		log.Debugf("Received from %s : %s", update.Id, update.Msg)
 		if update.Id != hostname {
 			cclient.cc.mu.Lock()
 			if !bytes.Equal(cclient.cc.Content, update.Msg) {
@@ -199,7 +195,7 @@ func (cclient *ClipClient) ConnectRecvUpdate() {
 			cclient.cc.mu.Unlock()
 			go func() {
 				noNotify <- struct{}{}
-				log.Printf("[+] Update clipboard from %s: %s", update.Id, update.Msg)
+				log.Debugf("Update clipboard: %s", update.Msg)
 				cclient.cc.WriteClipboard()
 			}()
 		}
@@ -210,13 +206,31 @@ func handleSignal() {
 	signal_chan := make(chan os.Signal, 1)
 	signal.Notify(signal_chan, syscall.SIGINT, syscall.SIGTERM)
 	<-signal_chan
-	log.Printf("Exit")
+	log.Infof("Exit by Ctrl+C")
 	os.Exit(0)
 }
 
 func main() {
 	go handleSignal()
 	flag.Parse()
+	switch *loglevel {
+	case "trace":
+		log.SetLevel(log.TraceLevel)
+	case "debug":
+		log.SetLevel(log.DebugLevel)
+	case "info":
+		log.SetLevel(log.InfoLevel)
+	case "warn":
+		log.SetLevel(log.WarnLevel)
+	case "error":
+		log.SetLevel(log.ErrorLevel)
+	case "fatal":
+		log.SetLevel(log.FatalLevel)
+	case "panic":
+		log.SetLevel(log.PanicLevel)
+	default:
+		log.Fatalf("invalid loglevel: %s", *loglevel)
+	}
 	full_addr := fmt.Sprintf("%s:%d", *addr, *port)
 	conn, err := grpc.Dial(full_addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -231,6 +245,6 @@ func main() {
 	// go clipClient.KeepAlive()
 	go clipClient.WatchClipboardSend()
 	go clipClient.ConnectRecvUpdate()
-	log.Printf("Client %s is ready", *hostname)
+	log.Infof("Client %s is ready", *hostname)
 	select {}
 }
